@@ -1,0 +1,114 @@
+// buildscript {
+//     ext.kotlin_version = '1.7.10' // Updated to the latest version
+//     repositories {
+//         google()
+//         mavenCentral()
+//     }
+//     dependencies {
+//         // classpath 'com.android.tools.build:gradle:7.3.0' // Updated Gradle version
+//         // classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+//         // classpath 'com.google.gms:google-services:4.3.8' // If you are using Firebase
+//         classpath 'com.android.tools.build:gradle:7.1.2'
+//         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+//         classpath "com.google.gms:google-services:4.3.15"
+//         classpath 'com.google.firebase:firebase-crashlytics-gradle:2.9.7'
+//     }
+// }
+
+// allprojects {
+//     repositories {
+//         google()
+//         mavenCentral()
+//     }
+// }
+
+// rootProject.buildDir = "../build"
+// subprojects {
+//     project.buildDir = "${rootProject.buildDir}/${project.name}"
+// }
+
+// tasks.register("clean", Delete) {
+//     delete rootProject.buildDir
+// }
+
+
+// buildscript {
+//     ext.kotlin_version = '1.9.10'
+
+//     repositories {
+//         google()
+//         mavenCentral()
+//     }
+
+//     dependencies {
+//         classpath 'com.android.tools.build:gradle:8.7.0'           // ← Must be 8.1+
+//         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+//         classpath "com.google.gms:google-services:4.4.2"
+//         classpath 'com.google.firebase:firebase-crashlytics-gradle:3.0.2'
+//     }
+// }
+
+ext.kotlin_version = '2.1.0'
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.buildDir = "../build"
+subprojects {
+    project.buildDir = "${rootProject.buildDir}/${project.name}"
+
+    // Ensure consistent JVM target across all Java and Kotlin compile tasks
+    // (prevents "Inconsistent JVM-target compatibility" errors from plugins
+    //  that still hardcode JavaVersion.VERSION_1_8 in their compileOptions)
+    project.tasks.configureEach { task ->
+        if (task instanceof org.jetbrains.kotlin.gradle.tasks.KotlinCompile) {
+            task.kotlinOptions.jvmTarget = "17"
+        }
+    }
+
+    afterEvaluate { project ->
+        if (project.hasProperty('android')) {
+            // Ensure compileSdk is high enough for Java 17 (requires >= 30)
+            // compileSdkVersion returns a string like "android-36", so parse the int out
+            def rawSdk = project.android.compileSdkVersion?.toString() ?: "0"
+            def sdkInt = rawSdk.replaceAll(/\D/, '').toInteger()
+            if (sdkInt < 34) {
+                project.android.compileSdkVersion 34
+            }
+
+            // Force Java compile target to 17 for every plugin so it matches Kotlin
+            project.android.compileOptions {
+                sourceCompatibility JavaVersion.VERSION_17
+                targetCompatibility JavaVersion.VERSION_17
+            }
+
+            // Patch old plugin manifests: AGP 8.x no longer accepts package= in
+            // library AndroidManifest.xml files — strip it and promote to namespace.
+            def manifestFile = project.android.sourceSets.main.manifest.srcFile
+            if (manifestFile != null && manifestFile.exists()) {
+                def content = manifestFile.text
+                def matcher = content =~ /package="([^"]+)"/
+                if (matcher.find()) {
+                    def packageName = matcher.group(1)
+                    if (project.android.namespace == null) {
+                        project.android.namespace = packageName
+                    }
+                    // Remove the package= attribute so AGP 8.x doesn't reject it
+                    manifestFile.text = content.replaceAll(/\s*package="[^"]*"/, '')
+                }
+            }
+            // Fallback: ensure every subproject has a namespace
+            if (project.android.namespace == null) {
+                project.android.namespace = "com.silverdeveloper." + project.name.replaceAll(/[_\-]/, "")
+            }
+        }
+    }
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}

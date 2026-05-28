@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    NativeAdView for list-tile / compact native ads.
+
+    NativeAdView extends FrameLayout. Two children are stacked:
+
+      1. An INVISIBLE MediaView overlay covering the whole card. It stays
+         inside the NativeAdView bounds (AdMob policy: "Advertiser assets
+         outside native ad view"), but never renders, so the test campaign's
+         large Google Ads logo / video poster doesn't bleed into the design.
+
+      2. The visible LinearLayout with icon + headline + advertiser + rating
+         + body + Install button. This is the only thing the user sees.
+
+    The MediaView is listed FIRST so the LinearLayout draws on top in the
+    FrameLayout z-order and the LinearLayout is also the topmost touch
+    target — ad clicks reach the SDK's click handler unobstructed.
+-->
+<com.google.android.gms.ads.nativead.NativeAdView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <!-- Invisible MediaView overlay (covers the whole card). -->
+    <com.google.android.gms.ads.nativead.MediaView
+        android:id="@+id/native_ad_media"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:importantForAccessibility="no"
+        android:visibility="invisible" />
+
+    <!-- Visible card content -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="#FFFFFF"
+        android:padding="8dp">
+
+        <!-- Row: Ad badge + Icon + Text column + Rating -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <!-- Ad attribution badge -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Ad"
+                android:textColor="#FFFFFF"
+                android:textSize="9sp"
+                android:background="#F19938"
+                android:padding="2dp"
+                android:layout_marginEnd="6dp" />
+
+            <!-- App icon -->
+            <ImageView
+                android:id="@+id/native_ad_icon"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:scaleType="fitXY"
+                android:layout_marginEnd="8dp"
+                tools:background="#EDEDED" />
+
+            <!-- Headline + Advertiser -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/native_ad_headline"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="#000000"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    tools:text="Headline" />
+
+                <TextView
+                    android:id="@+id/native_ad_advertiser"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="#828282"
+                    android:textSize="11sp"
+                    tools:text="Advertiser" />
+            </LinearLayout>
+
+            <!-- Star rating -->
+            <RatingBar
+                android:id="@+id/native_ad_rating"
+                style="?android:attr/ratingBarStyleSmall"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:isIndicator="true"
+                android:numStars="5"
+                android:stepSize="0.5" />
+
+        </LinearLayout>
+
+        <!-- Body text -->
+        <TextView
+            android:id="@+id/native_ad_body"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:textColor="#555555"
+            android:textSize="12sp"
+            tools:text="Ad body description goes here." />
+
+        <!-- CTA button -->
+        <Button
+            android:id="@+id/native_ad_button"
+            android:layout_width="match_parent"
+            android:layout_height="36dp"
+            android:layout_marginTop="8dp"
+            android:background="#FF0044"
+            android:text="Install"
+            android:textAllCaps="true"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp" />
+
+    </LinearLayout>
+
+</com.google.android.gms.ads.nativead.NativeAdView>
