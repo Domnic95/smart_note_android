@@ -31,7 +31,7 @@
 //     });
 
 //     const apiKey =
-//         'sk-proj-0D0RpdNDM3sxUtfQji2IT3BlbkFJzsJmMJNRUvl2SB9Nbg4w'; // Add your API key here
+//         'test'; // Add your API key here
 //     const apiUrl = 'https://api.openai.com/v1/chat/completions';
 //     final headers = {
 //       'Content-Type': 'application/json',
