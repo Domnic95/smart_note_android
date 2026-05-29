@@ -16,26 +16,4 @@
         <item name="android:windowBackground">?android:colorBackground</item>
     </style>
 
-    <!--
-        Theme applied to com.google.android.gms.ads.AdActivity so that
-        interstitial / rewarded / app-open ads cover the ENTIRE screen,
-        including the host MainActivity's MaterialAppBar.
-
-        Important: this is OPAQUE (Theme.Black.NoTitleBar.Fullscreen + an
-        explicit black windowBackground), NOT Theme.Translucent. The
-        SDK's default Theme.Translucent only paints a ~50% black scrim
-        behind the ad card, so anything in the host activity that wasn't
-        already black (like the Flutter MaterialAppBar) bleeds through.
-        Making AdActivity opaque pauses the host activity entirely and
-        gives the ad a solid black backdrop — exactly the AdMob look.
-    -->
-    <style name="AdActivityTheme" parent="@android:style/Theme.Black.NoTitleBar.Fullscreen">
-        <item name="android:windowBackground">@android:color/black</item>
-        <item name="android:windowFullscreen">true</item>
-        <item name="android:windowNoTitle">true</item>
-        <item name="android:windowActionBar">false</item>
-        <item name="android:windowContentOverlay">@null</item>
-        <item name="android:windowIsTranslucent">false</item>
-        <item name="android:windowDisablePreview">true</item>
-    </style>
 </resources>

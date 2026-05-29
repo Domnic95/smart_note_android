@@ -21,19 +21,6 @@
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
         </provider>
 
-        <!--
-            Override the theme of Google Mobile Ads' AdActivity so interstitial,
-            rewarded, and app-open ads render edge-to-edge — covering the status
-            bar, navigation bar, and the host MainActivity's MaterialAppBar
-            (which would otherwise bleed through behind the translucent ad layer
-            in the SDK's default Theme.Translucent). The activity is already
-            declared by the GMA SDK's manifest; tools:replace="android:theme"
-            only swaps the theme attribute and keeps every other default.
-        -->
-        <activity
-            android:name="com.google.android.gms.ads.AdActivity"
-            android:theme="@style/AdActivityTheme"
-            tools:replace="android:theme" />
     </application>
 
     <queries>

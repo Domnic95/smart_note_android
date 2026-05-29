@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:note_app/FIrebaseCrashlytics.dart';
-import 'package:note_app/Google_Ads/AppOpenAds/AppLifeCycleReactor.dart';
 import 'package:note_app/Google_Ads/AppOpenAds/AppOpenManager.dart';
 import 'package:note_app/Google_Ads/ConfigController.dart';
 import 'package:note_app/firebase_options.dart';
@@ -24,10 +23,7 @@ main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
-  // Debug log to confirm the file path
-  developer.log('Loading .env file from the root directory.',
-      name: 'main.dart');
-
+  developer.log('Loading .env file from the root directory.', name: 'main.dart');
   try {
     await dotenv.load(fileName: ".env");
   } catch (e) {
@@ -38,7 +34,12 @@ main() async {
   await MobileAds.instance.initialize();
   final configController = Get.put(ConfigController());
   await configController.fetchConfig();
+
   runApp(MyApp(initialDarkMode: initialThemekMode));
+
+  // Kick off the ad load in the background after the app starts rendering.
+  // The splash screen awaits it via AppOpenAdManager.instance.showOnColdStart().
+  AppOpenAdManager.instance.loadAd();
 }
 
 class MyApp extends StatefulWidget {
@@ -52,36 +53,17 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   late bool _isDarkMode;
-  late final AppOpenAdManager _appOpenAdManager;
-  late final AppLifecycleReactor _appLifecycleReactor;
 
   @override
   void initState() {
     super.initState();
-
     _isDarkMode = widget.initialDarkMode;
-
-    _appOpenAdManager = AppOpenAdManager();
-    // Only pre-load the ad here. Showing it is controlled by AppStartup
-    // so it fires after the splash screen, with navigation in the dismiss callback.
-    _appOpenAdManager.loadAd(
-      onLoaded: () => debugPrint('AppOpenAd pre-loaded'),
-    );
-
-    _appLifecycleReactor =
-        AppLifecycleReactor(appOpenAdManager: _appOpenAdManager);
-
-    _appLifecycleReactor.listenToAppStateChanges();
   }
 
   void _toggleTheme() {
     final next = !_isDarkMode;
-    setState(() {
-      _isDarkMode = next;
-    });
-    SharedPreferences.getInstance().then(
-      (p) => p.setBool(_kPrefIsDark, next),
-    );
+    setState(() => _isDarkMode = next);
+    SharedPreferences.getInstance().then((p) => p.setBool(_kPrefIsDark, next));
   }
 
   @override
@@ -95,7 +77,6 @@ class _MyAppState extends State<MyApp> {
       home: AppStartup(
         toggleTheme: _toggleTheme,
         isDarkMode: _isDarkMode,
-        appOpenAdManager: _appOpenAdManager,
       ),
     );
   }

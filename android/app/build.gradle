@@ -127,6 +127,9 @@ android {
     }
 
     buildTypes {
+        debug {
+            jniDebuggable false
+        }
         release {
             signingConfig signingConfigs.debug
             minifyEnabled true
@@ -138,6 +141,9 @@ android {
     packagingOptions {
         exclude 'lib/arm64-v8a/libc++_shared.so'
         exclude 'lib/x86_64/libc++_shared.so'
+        jniLibs {
+            useLegacyPackaging = false
+        }
     }
 
     configurations.all {

@@ -1,52 +1,56 @@
 import 'dart:async';
 import 'dart:developer';
+
+import 'package:note_app/Google_Ads/Config.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
-import 'package:note_app/Google_Ads/Config.dart';
 
 class AppOpenAdManager {
+  AppOpenAdManager._();
+
+  static final AppOpenAdManager instance = AppOpenAdManager._();
+
   final Duration maxCacheDuration = const Duration(hours: 4);
   DateTime? _appOpenLoadTime;
 
   AppOpenAd? _appOpenAd;
   bool _isShowingAd = false;
+  bool _splashInProgress = false;
+  Future<bool>? _ongoingLoad;
+  DateTime? _lastAdDismissedTime;
+  static const _resumeCooldown = Duration(seconds: 30);
 
-  // Completer that resolves when the ad is available OR definitively failed.
-  // Created synchronously before the first await in loadAd() so that
-  // waitUntilReady() always has a non-null future to await.
-  Completer<void>? _loadCompleter;
-  bool _completerDone = false;
+  bool get splashInProgress => _splashInProgress;
 
-  int _retryCount = 0;
-  static const int _maxRetries = 3;
+  void setSplashInProgress(bool value) {
+    _splashInProgress = value;
+  }
 
-  void _completeLoad() {
-    if (!_completerDone) {
-      _completerDone = true;
-      _loadCompleter?.complete();
+  // ── Load ──────────────────────────────────────────────────────────────────────
+
+  Future<bool> loadAd({bool forceReload = false}) async {
+    if (!forceReload && isAdAvailable) return true;
+    if (!forceReload && _ongoingLoad != null) return _ongoingLoad!;
+
+    final load = _performLoad();
+    _ongoingLoad = load;
+    try {
+      return await load;
+    } finally {
+      if (identical(_ongoingLoad, load)) _ongoingLoad = null;
     }
   }
 
-  Future<void> loadAd({VoidCallback? onLoaded, bool isRetry = false}) async {
-    if (!isRetry) {
-      // First call — create a fresh completer synchronously so waitUntilReady()
-      // called on the very next frame already has something to await.
-      _loadCompleter = Completer<void>();
-      _completerDone = false;
-      _retryCount = 0;
+  Future<bool> _performLoad() async {
+    if (!await Config().showAds()) return false;
+
+    final adUnitId = await Config().openAdUnitId();
+    if (adUnitId == null) {
+      log('AppOpenAd: skipped — no unit ID in config');
+      return false;
     }
 
-    bool canShowAds = await Config().showAds();
-    String? adUnitId = await Config().openAdUnitId();
-
-    debugPrint('AppOpenAd: canShowAds=$canShowAds adUnitId=$adUnitId retryCount=$_retryCount');
-
-    if (!canShowAds || adUnitId == null) {
-      debugPrint('AppOpenAd: ads disabled or no unit ID');
-      _completeLoad();
-      return;
-    }
-
+    final completer = Completer<bool>();
     AppOpenAd.load(
       adUnitId: adUnitId,
       request: const AdRequest(),
@@ -54,88 +58,108 @@ class AppOpenAdManager {
         onAdLoaded: (ad) {
           _appOpenLoadTime = DateTime.now();
           _appOpenAd = ad;
-          _retryCount = 0;
           debugPrint('AppOpenAd: loaded ✓');
-          _completeLoad();
-          onLoaded?.call();
+          if (!completer.isCompleted) completer.complete(true);
         },
         onAdFailedToLoad: (error) {
-          debugPrint('AppOpenAd: failed ($error) — retry $_retryCount/$_maxRetries');
-          if (_retryCount < _maxRetries) {
-            _retryCount++;
-            // Brief delay before retry to avoid hammering the server
-            Future.delayed(const Duration(seconds: 2), () {
-              loadAd(onLoaded: onLoaded, isRetry: true);
-            });
-          } else {
-            debugPrint('AppOpenAd: all retries exhausted — giving up');
-            _completeLoad(); // release the splash so the user isn't stuck
-          }
+          debugPrint('AppOpenAd: failed to load — $error');
+          if (!completer.isCompleted) completer.complete(false);
         },
       ),
     );
-  }
 
-  /// Waits until the ad is loaded OR all retries are exhausted.
-  /// The [timeout] is a hard backstop for the case where the SDK fires
-  /// no callbacks at all (GMS service silent failure).
-  Future<bool> waitUntilReady({
-    Duration timeout = const Duration(seconds: 20),
-  }) async {
-    if (isAdAvailable) return true;
-    final completer = _loadCompleter;
-    if (completer == null) return false;
-    try {
-      await completer.future.timeout(timeout);
-    } on TimeoutException {
-      debugPrint('AppOpenAd: hard timeout after $timeout — SDK was silent');
-    }
-    return isAdAvailable;
+    return completer.future;
   }
 
   bool get isAdAvailable => _appOpenAd != null;
 
-  /// Shows the ad if available. Returns true if the ad was shown.
-  bool showAdIfAvailable({VoidCallback? onAdDismissed}) {
+  // ── Show ──────────────────────────────────────────────────────────────────────
+
+  /// Cold-start: called only after the polling loop has confirmed
+  /// [isAdAvailable]. Shows the ad over the white splash and awaits dismissal.
+  /// Fires [onDismissed] when the ad closes (or immediately on error).
+  Future<void> showOnColdStart({VoidCallback? onDismissed}) async {
+    _splashInProgress = true;
+    try {
+      if (!isAdAvailable) return;
+
+      final dismissed = Completer<void>();
+      showAdIfAvailable(
+        onAdDismissed: () {
+          if (!dismissed.isCompleted) dismissed.complete();
+        },
+      );
+
+      await dismissed.future.timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {},
+      );
+    } finally {
+      onDismissed?.call();
+    }
+  }
+
+  /// App-resume: shows the ad when the app returns to foreground,
+  /// guarded by [_resumeCooldown] and [_splashInProgress].
+  Future<void> showOnAppResume() async {
+    if (_splashInProgress || _isShowingAd) return;
+    if (_lastAdDismissedTime != null &&
+        DateTime.now().difference(_lastAdDismissedTime!) < _resumeCooldown) {
+      return;
+    }
+    if (!await Config().showAds() || await Config().ifOpenAds() != 1) return;
+
+    if (!isAdAvailable) await loadAd();
+    if (isAdAvailable && !_isShowingAd && !_splashInProgress) {
+      showAdIfAvailable();
+    }
+  }
+
+  void showAdIfAvailable({VoidCallback? onAdDismissed}) {
     if (!isAdAvailable) {
       log('AppOpenAd: not available');
-      return false;
+      unawaited(loadAd());
+      onAdDismissed?.call();
+      return;
     }
     if (_isShowingAd) {
       log('AppOpenAd: already showing');
-      return false;
+      onAdDismissed?.call();
+      return;
     }
     if (DateTime.now().subtract(maxCacheDuration).isAfter(_appOpenLoadTime!)) {
       log('AppOpenAd: cache expired — reloading');
       _appOpenAd!.dispose();
       _appOpenAd = null;
-      loadAd();
-      return false;
+      unawaited(loadAd());
+      onAdDismissed?.call();
+      return;
     }
 
+    _isShowingAd = true;
     _appOpenAd!.fullScreenContentCallback = FullScreenContentCallback(
       onAdShowedFullScreenContent: (ad) {
-        _isShowingAd = true;
         log('AppOpenAd: showing');
       },
       onAdFailedToShowFullScreenContent: (ad, error) {
-        log('AppOpenAd: failed to show: $error');
+        log('AppOpenAd: failed to show — $error');
         _isShowingAd = false;
+        _lastAdDismissedTime = DateTime.now();
         ad.dispose();
         _appOpenAd = null;
+        unawaited(loadAd());
         onAdDismissed?.call();
       },
       onAdDismissedFullScreenContent: (ad) {
         log('AppOpenAd: dismissed');
         _isShowingAd = false;
+        _lastAdDismissedTime = DateTime.now();
         ad.dispose();
         _appOpenAd = null;
-        loadAd(); // pre-load next ad for lifecycle reactor
+        unawaited(loadAd());
         onAdDismissed?.call();
       },
     );
-
     _appOpenAd!.show();
-    return true;
   }
 }

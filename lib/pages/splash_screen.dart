@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:get/get.dart';
 import 'package:note_app/Google_Ads/AppOpenAds/AppOpenManager.dart';
+import 'package:note_app/Google_Ads/ShowAds.dart';
 import 'package:note_app/pages/main_page_screen.dart';
 import 'package:note_app/pages/welcome_page_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,13 +11,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 class AppStartup extends StatefulWidget {
   final VoidCallback toggleTheme;
   final bool isDarkMode;
-  final AppOpenAdManager appOpenAdManager;
 
   const AppStartup({
     super.key,
     required this.toggleTheme,
     required this.isDarkMode,
-    required this.appOpenAdManager,
   });
 
   @override
@@ -21,83 +23,99 @@ class AppStartup extends StatefulWidget {
 }
 
 class _AppStartupState extends State<AppStartup> {
-  _StartupRoute _route = _StartupRoute.splash;
+  // How often to check if the ad is ready.
+  static const _pollInterval = Duration(milliseconds: 500);
+  // Max time to wait for the ad before giving up and going to home.
+  static const _maxAdWait = Duration(seconds: 15);
+  // Hard safety net — navigates no matter what after this.
+  static const _absoluteTimeout = Duration(seconds: 45);
 
-  static const Duration _splashMinDuration = Duration(milliseconds: 1800);
+  bool _flowComplete = false;
+  Timer? _safetyTimer;
 
   @override
   void initState() {
     super.initState();
+
+    // Block showOnAppResume() from firing while the splash + ad are running.
+    AppOpenAdManager.instance.setSplashInProgress(true);
+
+    _safetyTimer = Timer(_absoluteTimeout, () {
+      debugPrint('AppStartup: absolute timeout — forcing navigation.');
+      _onFlowComplete();
+    });
+
     _runStartupFlow();
   }
 
+  @override
+  void dispose() {
+    _safetyTimer?.cancel();
+    super.dispose();
+  }
+
   Future<void> _runStartupFlow() async {
-    // 1. Determine destination while splash is visible
     final prefs = await SharedPreferences.getInstance();
     final showWelcome = prefs.getBool('showWelcomePage') ?? true;
-    final targetRoute =
-        showWelcome ? _StartupRoute.welcome : _StartupRoute.main;
 
-    // 2. Run splash timer and ad load wait in parallel.
-    //    - Splash stays visible for at least _splashMinDuration.
-    //    - Ad gets up to 5 s total to load (counted from app start, so if it
-    //      loaded in <1.8 s the wait here is effectively zero).
-    await Future.wait([
-      Future<void>.delayed(_splashMinDuration),
-      // Wait until the ad loads (with up to 3 retries on failure).
-      // 20 s hard backstop covers GMS silent-failure edge cases.
-      widget.appOpenAdManager.waitUntilReady(
-        timeout: const Duration(seconds: 20),
-      ),
-    ]);
+    // Poll until the ad is ready or the deadline passes.
+    final deadline = DateTime.now().add(_maxAdWait);
+    while (DateTime.now().isBefore(deadline)) {
+      if (AppOpenAdManager.instance.isAdAvailable) break;
+      await Future.delayed(_pollInterval);
+    }
+
     if (!mounted) return;
 
-    // 3. Show ad — navigation happens exclusively inside onAdDismissed.
-    //    If the ad still isn't ready (network failure, ads disabled, etc.)
-    //    showAdIfAvailable returns false and we navigate immediately.
-    final adShown = widget.appOpenAdManager.showAdIfAvailable(
-      onAdDismissed: () => _navigateTo(targetRoute),
-    );
-
-    if (!adShown) {
-      _navigateTo(targetRoute);
+    if (AppOpenAdManager.instance.isAdAvailable) {
+      // Ad is ready — show it over the white splash screen.
+      await ShowAppOpenAds.instance
+          .showAppOpenAds(callback: () => _onFlowComplete(showWelcome: showWelcome));
+    } else {
+      // No ad available — navigate directly.
+      _onFlowComplete(showWelcome: showWelcome);
     }
   }
 
-  void _navigateTo(_StartupRoute target) {
-    if (!mounted) return;
-    setState(() => _route = target);
+  void _onFlowComplete({bool showWelcome = false}) {
+    if (_flowComplete) return;
+    _flowComplete = true;
+    _safetyTimer?.cancel();
+    AppOpenAdManager.instance.setSplashInProgress(false);
+
+    if (showWelcome) {
+      Get.offAll(
+        () => WelcomePage(
+          toggleTheme: widget.toggleTheme,
+          isDarkMode: widget.isDarkMode,
+          onGetStarted: _onWelcomeFinished,
+        ),
+        transition: Transition.noTransition,
+      );
+    } else {
+      Get.offAll(
+        () => MainPage(toggleTheme: widget.toggleTheme),
+        transition: Transition.noTransition,
+      );
+    }
   }
 
   Future<void> _onWelcomeFinished() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('showWelcomePage', false);
-    if (!mounted) return;
-    setState(() {
-      _route = _StartupRoute.main;
-    });
+    Get.offAll(
+      () => MainPage(toggleTheme: widget.toggleTheme),
+      transition: Transition.noTransition,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    switch (_route) {
-      case _StartupRoute.splash:
-        return const _SplashView();
-      case _StartupRoute.welcome:
-        return WelcomePage(
-          toggleTheme: widget.toggleTheme,
-          isDarkMode: widget.isDarkMode,
-          onGetStarted: _onWelcomeFinished,
-        );
-      case _StartupRoute.main:
-        return MainPage(
-          toggleTheme: widget.toggleTheme,
-        );
-    }
+    // Always show the splash — it stays visible behind the ad while it loads.
+    // Navigation happens via Get.offAll() inside _onFlowComplete().
+    return const _SplashView();
   }
 }
-
-enum _StartupRoute { splash, welcome, main }
 
 class _SplashView extends StatelessWidget {
   const _SplashView();
@@ -109,7 +127,8 @@ class _SplashView extends StatelessWidget {
       body: Container(
         width: double.infinity,
         height: double.infinity,
-        decoration: BoxDecoration(color: Theme.of(context).colorScheme.surface),
+        decoration:
+            BoxDecoration(color: Theme.of(context).colorScheme.surface),
         child: SafeArea(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,

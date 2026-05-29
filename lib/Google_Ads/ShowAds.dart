@@ -8,40 +8,37 @@ import 'package:note_app/Google_Ads/InterstitialAds/InterstitialAdManager.dart';
 import 'package:note_app/Google_Ads/SpHelper.dart';
 
 class ShowAppOpenAds {
-  late AppLifecycleReactor _appLifecycleReactor;
-  late AppOpenAdManager _appOpenAdManager;
-  int click = 0;
+  ShowAppOpenAds._();
 
-  showAppOpenAds({VoidCallback? callback}) async {
-    if (await Config().ifOpenAds() == 1 && await Config().showAds()) {
-      return initAppOpen(callback: callback);
-    } else if (await Config().ifOpenAds() == 2 && await Config().showAds()) {
-      return Future.delayed(const Duration(seconds: 2)).then((value) =>
-          {ShowInterstitialAds().showInterstitialAds(callback: callback)});
-    } else {
-      if (callback != null) {
-        Future.delayed(const Duration(seconds: 3))
-            .then((value) => {callback()});
-      }
+  static final ShowAppOpenAds instance = ShowAppOpenAds._();
+  factory ShowAppOpenAds() => instance;
+
+  AppLifecycleReactor? _appLifecycleReactor;
+  final AppOpenAdManager _appOpenAdManager = AppOpenAdManager.instance;
+
+  Future<void> showAppOpenAds({VoidCallback? callback}) async {
+    final showAds = await Config().showAds();
+    final openType = await Config().ifOpenAds();
+
+    if (openType == 1 && showAds) {
+      await initAppOpen(callback: callback);
+      return;
     }
+    callback?.call();
   }
 
-  initAppOpen({VoidCallback? callback}) {
-    _appOpenAdManager = AppOpenAdManager();
-    _appOpenAdManager.loadAd();
+  Future<void> initAppOpen({VoidCallback? callback}) async {
+    await _appOpenAdManager.showOnColdStart(onDismissed: callback);
+    // Delay attaching the lifecycle listener to avoid the spurious foreground
+    // event the OS fires right after AdActivity closes in release mode.
+    Future.delayed(const Duration(seconds: 5), _attachLifecycleListener);
+  }
 
-    Timer(const Duration(seconds: 2), () {
-      if (_appOpenAdManager.isAdAvailable) {
-        _appOpenAdManager.showAdIfAvailable(onAdDismissed: callback);
-      } else {
-        if (callback != null) {
-          callback();
-        }
-      }
-    });
+  void _attachLifecycleListener() {
+    if (_appLifecycleReactor != null) return;
     _appLifecycleReactor =
         AppLifecycleReactor(appOpenAdManager: _appOpenAdManager);
-    _appLifecycleReactor.listenToAppStateChanges();
+    _appLifecycleReactor!.listenToAppStateChanges();
   }
 }
 
